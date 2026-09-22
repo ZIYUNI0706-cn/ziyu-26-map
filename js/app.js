@@ -75,21 +75,21 @@
     return u < 0.5 ? mix(BAND_STOPS[0], BAND_STOPS[1], u * 2) : mix(BAND_STOPS[1], BAND_STOPS[2], (u - 0.5) * 2);
   }
 
-  // 省级填充色：沿三色渐变带按省数值比例取纯色（不再做省内空间渐变），
-  // 100% 不透明；同一省份所有城市同色，省份呈现统一整块。
-  // 数值映射为 10 档离散色阶：0%=#666BCE（起始紫）/ 50%=#18B7F6（中间蓝）/ 100%=#D7EEF6（末尾浅蓝）
-  var FILL_STEPS = 10;
-  function fillLevel(t) {
-    return Math.round(clamp(t, 0, 1) * (FILL_STEPS - 1)) / (FILL_STEPS - 1);
-  }
-  // opts: t 数值比例(0~1)；fade 点亮渐入进度(仅播放时 0~1，正常为 1 全不透明)；lighten 悬停提亮
-  function provFill(c, opts) {
-    opts = opts || {};
-    var h = band(fillLevel(opts.t || 0));
-    if (opts.lighten > 0) h = shade(h, opts.lighten);
-    var fade = opts.fade == null ? 1 : clamp(opts.fade, 0, 1);
-    return fade >= 1 ? h : rgbaA(h, fade);
-  }
+  // 省份 bbox（省内城市 bbox 并集）：省内连续渐变的区段换算基准
+  var PROV_BBOX = (function () {
+    var m = {};
+    CITIES.forEach(function (c) {
+      var b = m[c.province];
+      if (!b) m[c.province] = [c.bbox[0], c.bbox[1], c.bbox[2], c.bbox[3]];
+      else {
+        if (c.bbox[0] < b[0]) b[0] = c.bbox[0];
+        if (c.bbox[1] < b[1]) b[1] = c.bbox[1];
+        if (c.bbox[2] > b[2]) b[2] = c.bbox[2];
+        if (c.bbox[3] > b[3]) b[3] = c.bbox[3];
+      }
+    });
+    return m;
+  })();
 
   // 中心图标填充：紫色系纵向渐变（以 #666BCE 为主的紫 → 浅紫）
   function iconGrad() {
@@ -113,6 +113,41 @@
         { offset: 1, color: 'rgba(24,183,246,0.40)' }
       ]
     };
+  }
+
+  // 省级连续渐变填充：渐变向量铺满城市图形（global:false 相对自身包围盒），
+  // colorStops 取全省渐变中该城市 bbox 对应区段的起止颜色 —— 相邻城市颜色首尾
+  // 衔接，整省呈现一段连续渐变。渐变方向 = 省 bbox 长轴（水平：西→东 / 垂直：北→南）。
+  // 透明度按省数值大小调整。opts: t 数值比例(0~1)；fade 点亮渐入；lighten 悬停提亮；boost 悬停加实
+  function provGrad(c, opts) {
+    opts = opts || {};
+    var pb = PROV_BBOX[c.province];
+    var alpha = 0.5 + 0.4 * clamp(opts.t || 0, 0, 1); // 数值越大越不透明（差异收敛，避免过透/过实）
+    var fade = opts.fade == null ? 1 : clamp(opts.fade, 0, 1);
+    alpha = clamp(alpha * fade + (opts.boost || 0), 0, 1);
+    var lighten = opts.lighten || 0;
+    if (!pb) return rgbaA(band(0.5), alpha);
+    function col(u) {
+      var h = band(u);
+      if (lighten > 0) h = shade(h, lighten);
+      return rgbaA(h, alpha);
+    }
+    var pw = pb[2] - pb[0] || 1e-9, ph = pb[3] - pb[1] || 1e-9;
+    var horiz = (pb[2] - pb[0]) >= (pb[3] - pb[1]);
+    var a, b; // 城市在省渐变轴上的起止比例
+    if (horiz) {
+      a = (c.bbox[0] - pb[0]) / pw;
+      b = (c.bbox[2] - pb[0]) / pw;
+    } else {
+      a = (pb[3] - c.bbox[3]) / ph; // 屏幕 y 向下：顶部 = 城市北界
+      b = (pb[3] - c.bbox[1]) / ph;
+    }
+    var stops = [{ offset: 0, color: col(a) }, { offset: 1, color: col(b) }];
+    // 色带中点拐点落在区段内时补一个停靠点，保证跨城市的线性衔接精确
+    if (a < 0.5 && b > 0.5) stops.splice(1, 0, { offset: (0.5 - a) / (b - a), color: col(0.5) });
+    return horiz
+      ? { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, global: false, colorStops: stops }
+      : { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, global: false, colorStops: stops };
   }
 
   // ---------- 状态 ----------
@@ -417,8 +452,8 @@
       var t = prog > 0 ? Math.sqrt(sum / maxPS) : 0;
       var r = { name: c.name, itemStyle: { areaColor: EMPTY_COLOR } };
       if (prog > 0) {
-        // 边框完全去除：消除省内城市分界线，使省份呈现为一整块纯色
-        r.itemStyle = { areaColor: provFill(c, { t: t, fade: prog }), borderColor: 'rgba(255,255,255,0)', borderWidth: 0 };
+        // 边框完全去除：消除省内城市分界线，使省份呈现为一整块连续渐变
+        r.itemStyle = { areaColor: provGrad(c, { t: t, fade: prog }), borderColor: 'rgba(255,255,255,0)', borderWidth: 0 };
         if (!playing && showVal && v > 0) {
           r.label = {
             show: true, position: 'inside',
@@ -436,7 +471,7 @@
             ? '{n|' + c.name + '}' + (v > 0 ? '\n{v|' + fmtNum(v) + '}' : '')
             : (v > 0 ? '{v|' + fmtNum(v) + '}' : '{n|' + c.name + '}');
           r.emphasis = {
-            itemStyle: { areaColor: provFill(c, { t: t, lighten: 0.12 }), borderColor: '#2b9ff0', borderWidth: 1.1 },
+            itemStyle: { areaColor: provGrad(c, { t: t, lighten: 0.12, boost: 0.15 }), borderColor: '#2b9ff0', borderWidth: 1.1 },
             label: {
               show: true, position: 'inside',
               formatter: emphFmt,
@@ -450,10 +485,10 @@
       }
       if (!playing && c.name === selected) {
         r.itemStyle = sum > 0
-          ? { areaColor: provFill(c, { t: t }), borderColor: '#2b9ff0', borderWidth: 1.3 }
+          ? { areaColor: provGrad(c, { t: t }), borderColor: '#2b9ff0', borderWidth: 1.3 }
           : { areaColor: 'rgba(140,190,250,0.24)', borderColor: '#2b9ff0', borderWidth: 1.3 };
         r.emphasis = {
-          itemStyle: { areaColor: sum > 0 ? provFill(c, { t: t, lighten: 0.12 }) : 'rgba(150,200,255,0.32)', borderColor: '#2b9ff0', borderWidth: 1.4 },
+          itemStyle: { areaColor: sum > 0 ? provGrad(c, { t: t, lighten: 0.12, boost: 0.15 }) : 'rgba(150,200,255,0.32)', borderColor: '#2b9ff0', borderWidth: 1.4 },
           label: { show: true, position: 'inside', formatter: '{n|' + c.name + '}', rich: { n: { fontSize: 11, fontWeight: 600, color: '#1668b8', align: 'center' } } }
         };
       }
@@ -746,16 +781,6 @@
     updateLegend();
     updateCard();
     saveState();
-  }
-
-  // 图例色条：与地图填充一致的 10 档实色（硬边界分段），由同一 band() 生成保证颜色严格对应
-  function renderLegendBar() {
-    var parts = [];
-    for (var k = 0; k < FILL_STEPS; k++) {
-      var col = band(k / (FILL_STEPS - 1));
-      parts.push(col + ' ' + (k * 10) + '%', col + ' ' + ((k + 1) * 10) + '%');
-    }
-    $('legendBar').style.background = 'linear-gradient(90deg,' + parts.join(',') + ')';
   }
 
   function updateLegend() {
