@@ -152,6 +152,9 @@
 
   // ---------- 状态 ----------
   var STORE_KEY = 'chinaCityMap.v1';
+  // 默认数据种子版本：更新 data.json / default-data.js 后把此值 +1，
+  // 可让仍持有"旧版空存档"的访客重新播种为新默认数据（非空存档不受影响）
+  var SEED_VERSION = 2;
   var state = {
     values: {}, arrows: {}, centers: [], users: {},
     style: { arrowColor: '#1d9bf0', arrowMotion: 'flow', centerIcon: 'pin', centerSize: 'medium', userSize: 'medium', arrowWidth: 'medium', arrowLine: 'solid', arrowCurve: 'curve', seqSpeed: 'normal', tipsText: '', tipsSize: 'medium' }
@@ -217,13 +220,26 @@
     state.users = s.users;
     state.style = s.style;
   }
-  // 数据优先级：浏览器本地存档（回访保留个人编辑）＞ 默认数据
+  // 判断一份存档是否"完全空白"（旧版本首次访问时 refresh() 会自动存一份空状态，
+  // 导致 data.json 默认数据永远被跳过——空旧存档应视为"从未播种"）
+  function isEmptyState(s) {
+    return !s || (
+      Object.keys(s.values || {}).length === 0 &&
+      Object.keys(s.arrows || {}).length === 0 &&
+      (s.centers || []).length === 0 &&
+      Object.keys(s.users || {}).length === 0
+    );
+  }
+  // 数据优先级：本地有效存档（回访保留个人编辑）＞ 默认数据（data.json / 内嵌快照）
   function loadState() {
     try {
       var raw = localStorage.getItem(STORE_KEY);
       if (raw) {
-        var s = normalizeState(JSON.parse(raw));
-        if (s) { applyState(s); return Promise.resolve(); }
+        var parsed = JSON.parse(raw);
+        var seedV = +parsed.__seedV || 1;
+        var s = normalizeState(parsed);
+        // 旧种子版本 + 空白存档 → 放弃，走默认数据播种
+        if (s && (seedV >= SEED_VERSION || !isEmptyState(s))) { applyState(s); return Promise.resolve(); }
       }
     } catch (e) { /* ignore */ }
     return loadDefaultState();
@@ -233,14 +249,14 @@
   function loadDefaultState() {
     var applyEmbedded = function () {
       var s = normalizeState(window.__DEFAULT_MAP_STATE__);
-      if (s) applyState(s);
+      if (s) { applyState(s); saveState(); } // 播种后立即存档（带种子版本标记）
     };
     if (location.protocol === 'http:' || location.protocol === 'https:') {
       return fetch('data.json', { cache: 'no-cache' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function (d) {
           var s = normalizeState(d);
-          if (s) applyState(s); else applyEmbedded();
+          if (s) { applyState(s); saveState(); } else applyEmbedded();
         })
         .catch(applyEmbedded);
     }
@@ -248,7 +264,7 @@
     return Promise.resolve();
   }
   function saveState() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(Object.assign({ __seedV: SEED_VERSION }, state))); } catch (e) { /* ignore */ }
   }
 
   // ---------- 数据导入导出 ----------
