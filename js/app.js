@@ -210,18 +210,42 @@
     };
     return out;
   }
+  function applyState(s) {
+    state.values = s.values;
+    state.arrows = s.arrows;
+    state.centers = s.centers;
+    state.users = s.users;
+    state.style = s.style;
+  }
+  // 数据优先级：浏览器本地存档（回访保留个人编辑）＞ 默认数据
   function loadState() {
     try {
       var raw = localStorage.getItem(STORE_KEY);
-      if (!raw) return;
-      var s = normalizeState(JSON.parse(raw));
-      if (!s) return;
-      state.values = s.values;
-      state.arrows = s.arrows;
-      state.centers = s.centers;
-      state.users = s.users;
-      state.style = s.style;
+      if (raw) {
+        var s = normalizeState(JSON.parse(raw));
+        if (s) { applyState(s); return Promise.resolve(); }
+      }
     } catch (e) { /* ignore */ }
+    return loadDefaultState();
+  }
+  // 默认数据：http(s) 环境（GitHub Pages 等）优先 fetch 根目录 data.json（改文件即生效）；
+  // file:// 双击打开时 fetch 被浏览器禁止，回退到 js/default-data.js 的内嵌快照
+  function loadDefaultState() {
+    var applyEmbedded = function () {
+      var s = normalizeState(window.__DEFAULT_MAP_STATE__);
+      if (s) applyState(s);
+    };
+    if (location.protocol === 'http:' || location.protocol === 'https:') {
+      return fetch('data.json', { cache: 'no-cache' })
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function (d) {
+          var s = normalizeState(d);
+          if (s) applyState(s); else applyEmbedded();
+        })
+        .catch(applyEmbedded);
+    }
+    applyEmbedded();
+    return Promise.resolve();
   }
   function saveState() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
@@ -1671,9 +1695,10 @@
   // ---------- 启动 ----------
   window.addEventListener('resize', function () { chart.resize(); renderPinTip(); });
   chart.setOption(baseOption());
-  loadState();
-  setSearchMode(state.style.searchMode === 'user' ? 'user' : 'city');
-  syncStyleUI();
-  applyAuth();
-  refresh();
+  loadState().then(function () {
+    setSearchMode(state.style.searchMode === 'user' ? 'user' : 'city');
+    syncStyleUI();
+    applyAuth();
+    refresh();
+  });
 })();
