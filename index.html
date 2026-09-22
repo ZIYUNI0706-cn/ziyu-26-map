@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>中国城市数据地图</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%232563EB' d='M12 2C7.6 2 4 5.6 4 10c0 6.2 8 12 8 12s8-5.8 8-12c0-4.4-3.6-8-8-8zm0 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6z'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<main id="stage">
+  <div id="map"></div>
+
+  <!-- 搜索（悬浮上方居中） -->
+  <div class="search-wrap" id="searchWrap">
+    <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>
+    </svg>
+    <input id="search" type="text" placeholder="搜索城市，如：成都、杭州…" autocomplete="off" spellcheck="false">
+    <kbd>/</kbd>
+    <div class="search-mode" id="searchMode" role="tablist">
+      <button type="button" data-mode="city" class="active">城市</button>
+      <button type="button" data-mode="user">用户</button>
+    </div>
+    <div id="suggest" class="suggest hidden" role="listbox"></div>
+  </div>
+
+  <!-- 登录/退出 + 只读徽标（右上角固定） -->
+  <button id="btnAuth" class="auth-btn" title="登录后可编辑数据">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+    <span id="btnAuthText">登录</span>
+  </button>
+  <div id="modeBadge" class="mode-badge">只读浏览</div>
+
+  <!-- 工具栏显隐开关（右上角固定） -->
+  <button id="btnToggleUI" class="ui-toggle" title="隐藏工具栏">
+    <svg id="iconEyeOn" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>
+    <svg id="iconEyeOff" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M17.94 17.94A10.5 10.5 0 0 1 12 19c-6.5 0-10-7-10-7a19 19 0 0 1 5.06-5.94M9.9 4.24A9.5 9.5 0 0 1 12 4c6.5 0 10 7 10 7a19 19 0 0 1-3.22 4.31"/><path d="M1 1l22 22"/></svg>
+  </button>
+
+  <!-- 工具按钮（悬浮右上） -->
+  <div class="float-actions">
+    <button id="btnDemo" class="tool-btn edit-only" title="填充示例数据，快速预览效果">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3v4M3 5h4M6 17v4M4 19h4M13 3l2.5 6.5L22 12l-6.5 2.5L13 21l-2.5-6.5L4 12l6.5-2.5z"/></svg>
+      示例
+    </button>
+    <button id="btnClear" class="tool-btn edit-only" title="清空所有数值与设置">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg>
+      清空
+    </button>
+    <button id="btnImport" class="tool-btn edit-only" title="从 JSON 文件导入数值与设置">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10M8 9l4 4 4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+      导入
+    </button>
+    <button id="btnExport" class="tool-btn" title="将当前数值与设置导出为 JSON 文件">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V5M8 9l4-4 4 4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+      导出
+    </button>
+    <input type="file" id="fileImport" accept=".json,application/json" hidden>
+    <button id="btnTips" class="tool-btn" title="备注：在地图右上角显示自定义文字">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      备注
+    </button>
+    <button id="btnFlowSeq" class="tool-btn" title="线段从第 1 条开始按顺序点亮一遍">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4.5 13.5H11L9.5 22 19.5 9.5H13L13 2z"/></svg>
+      点亮
+    </button>
+    <button id="btnHelp" class="tool-btn" title="使用帮助">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.4 2.3c-.8.3-1.4 1-1.4 1.9v.3"/><circle cx="12" cy="17" r=".5" fill="currentColor"/></svg>
+      帮助
+    </button>
+  </div>
+
+  <!-- 备注面板（右上角，浮动） -->
+  <div id="tipsPanel" class="tips-panel hidden">
+    <div class="tips-head">
+      <span class="tips-title">备注</span>
+      <div class="seg edit-only" id="segTipsSize">
+        <button data-size="small">小</button>
+        <button data-size="medium" class="active">中</button>
+        <button data-size="large">大</button>
+      </div>
+    </div>
+    <div id="tipsText" class="tips-text" contenteditable="true" spellcheck="false"></div>
+  </div>
+
+  <!-- 图例与样式设置（悬浮左下） -->
+  <aside class="legend">
+    <div class="legend-caption">点击城市编辑数值 · 数值越大颜色越实</div>
+    <div class="legend-row">
+      <span class="legend-label" id="legendMin">0</span>
+      <span class="legend-bar" id="legendBar"></span>
+      <span class="legend-label" id="legendMax">—</span>
+    </div>
+    <div class="legend-divider"></div>
+    <div class="legend-checks">
+      <label class="legend-check"><input type="checkbox" id="chkLabels" checked> 数值</label>
+      <label class="legend-check"><input type="checkbox" id="chkNames"> 城市名称</label>
+      <label class="legend-check"><input type="checkbox" id="chkNums"> 线段编号</label>
+    </div>
+    <div class="legend-divider"></div>
+    <div class="legend-group edit-only">
+      <span class="legend-gtitle">箭头样式</span>
+      <div class="seg" id="segMotion">
+        <button data-motion="flow" class="active">流动</button>
+        <button data-motion="static">静态</button>
+      </div>
+      <div class="seg-rows">
+        <div class="seg" id="segWidth">
+          <button data-w="thin">细线</button>
+          <button data-w="medium" class="active">中线</button>
+          <button data-w="thick">粗线</button>
+        </div>
+        <div class="seg" id="segLine">
+          <button data-line="solid" class="active">实线</button>
+          <button data-line="dashed">虚线</button>
+          <button data-line="dotted">点线</button>
+        </div>
+        <div class="seg" id="segCurve">
+          <button data-curve="curve" class="active">弧线</button>
+          <button data-curve="straight">直线</button>
+        </div>
+      </div>
+      <div class="swatches" id="swatchArrow">
+        <button class="swatch active" data-color="#f97316" title="橙色" style="background:#f97316"></button>
+        <button class="swatch" data-color="#2563eb" title="蓝色" style="background:#2563eb"></button>
+        <button class="swatch" data-color="#10b981" title="绿色" style="background:#10b981"></button>
+        <button class="swatch" data-color="#e11d48" title="玫红" style="background:#e11d48"></button>
+        <button class="swatch" data-color="#8b5cf6" title="紫色" style="background:#8b5cf6"></button>
+        <button class="swatch" data-color="#06b6d4" title="青色" style="background:#06b6d4"></button>
+        <button class="swatch" data-color="#d97706" title="琥珀" style="background:#d97706"></button>
+        <button class="swatch" data-color="#475569" title="石板灰" style="background:#475569"></button>
+      </div>
+      <div class="color-custom">
+        <input id="arrowPicker" type="color" value="#f97316" title="颜色画板：自选箭头颜色">
+        <input id="arrowHex" type="text" maxlength="7" placeholder="#ff6699" spellcheck="false" autocomplete="off" title="输入颜色值，如 #ff6699">
+      </div>
+    </div>
+    <div class="legend-group edit-only">
+      <span class="legend-gtitle">中心图标</span>
+      <div class="seg seg-icon" id="segIcon">
+        <button data-icon="pin" class="active">图钉</button>
+        <button data-icon="star">星形</button>
+        <button data-icon="dot">光点</button>
+        <button data-icon="ring">光环</button>
+        <button data-icon="flag">旗帜</button>
+        <button data-icon="highlight">高亮</button>
+        <button data-icon="moon">月亮</button>
+      </div>
+      <div class="seg" id="segSize" style="margin-top:8px">
+        <button data-size="small">小</button>
+        <button data-size="medium" class="active">中</button>
+        <button data-size="large">大</button>
+      </div>
+    </div>
+    <div class="legend-group edit-only">
+      <span class="legend-gtitle">用户气泡</span>
+      <div class="seg" id="segUserSize">
+        <button data-size="small">小</button>
+        <button data-size="medium" class="active">中</button>
+        <button data-size="large">大</button>
+      </div>
+    </div>
+    <div class="legend-group">
+      <span class="legend-gtitle">点亮速度</span>
+      <div class="seg" id="segSpeed">
+        <button data-speed="slow">慢</button>
+        <button data-speed="normal" class="active">中</button>
+        <button data-speed="fast">快</button>
+      </div>
+    </div>
+    <div class="legend-divider"></div>
+    <div class="legend-marks">
+      <span class="mark"><i class="dot dot-center"></i>中心城市</span>
+      <span class="mark"><svg id="markArrow" viewBox="0 0 24 24" width="14" height="14" stroke="#f97316" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20C8 12 13 8 21 6"/><path d="M15 5l6 1-1 6"/></svg>指向中心的箭头</span>
+    </div>
+    <div class="legend-btns edit-only">
+      <button id="btnArrowAll" class="mini-btn" title="为所有有着色的城市添加指向中心的箭头（就近指向）">为有着色城市添加</button>
+      <button id="btnArrowNone" class="mini-btn">全部移除</button>
+    </div>
+  </aside>
+
+  <!-- 缩放控件 -->
+  <div class="zoomer">
+    <button id="zoomIn" title="放大">+</button>
+    <button id="zoomOut" title="缩小">−</button>
+    <button id="zoomReset" title="重置视图">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+    </button>
+  </div>
+
+  <!-- 城市编辑卡片（右侧垂直居中） -->
+  <aside id="card" class="card hidden">
+    <button id="cardClose" class="card-close" title="关闭">
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+    <div class="card-title" id="cardName">—</div>
+    <div class="card-sub" id="cardSub">—</div>
+    <div class="card-field">
+      <label for="cardValue">数值</label>
+      <input id="cardValue" type="number" min="0" step="1" placeholder="输入数字，如 100">
+    </div>
+    <div class="card-field">
+      <label for="cardUser">用户</label>
+      <div class="user-add">
+        <input id="cardUser" type="text" placeholder="输入用户 ID，如 U1001" spellcheck="false" autocomplete="off">
+        <button id="btnAddUser" class="user-add-btn">添加</button>
+      </div>
+    </div>
+    <div id="userChips" class="user-chips"></div>
+    <div class="card-tip">省内渐变配色 · 数值越大所在省份颜色越实</div>
+    <div class="card-divider"></div>
+    <button id="btnCenter" class="card-btn">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor"><path d="M12 2l2.9 6.3 6.9.8-5.1 4.7 1.4 6.8L12 17.2 5.9 20.6l1.4-6.8L2.2 9.1l6.9-.8z"/></svg>
+      <span id="btnCenterText">设为中心城市</span>
+    </button>
+    <button id="btnArrow" class="card-btn">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20C8 12 13 8 21 6"/><path d="M15 5l6 1-1 6"/></svg>
+      <span id="btnArrowText">添加指向中心的箭头</span>
+    </button>
+    <div id="centerPick" class="center-pick hidden"></div>
+  </aside>
+</main>
+
+<div id="toast" class="toast hidden"></div>
+
+<!-- 登录弹窗 -->
+<div id="loginModal" class="modal hidden">
+  <div class="modal-card login-card">
+    <div class="modal-title">登录以编辑数据</div>
+    <div class="login-sub">未登录用户仅可浏览地图，不能修改任何数据</div>
+    <label class="login-field">账号
+      <input id="loginUser" type="text" autocomplete="username" spellcheck="false" placeholder="请输入账号">
+    </label>
+    <label class="login-field">密码
+      <input id="loginPass" type="password" autocomplete="current-password" placeholder="请输入密码">
+    </label>
+    <div id="loginErr" class="login-err hidden">账号或密码错误</div>
+    <div class="login-actions">
+      <button id="loginCancel" class="modal-btn ghost">取消</button>
+      <button id="loginOk" class="modal-btn">登录</button>
+    </div>
+  </div>
+</div>
+
+<!-- 帮助弹窗 -->
+<div id="modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-title">使用说明</div>
+    <ul class="modal-list">
+      <li><b>编辑权限：</b>默认是<b>只读浏览</b>模式，只能查看地图、悬停查看数值、拖动缩放与播放点亮；点击右上角「登录」（账号 admin）后才可修改数值、用户、中心、箭头、样式与导入数据，退出后恢复只读。</li>
+      <li><b>编辑数值：</b>登录后点击地图上任意城市输入数值；该城市所在省份整体渐变着色（从省一端连续渐变到另一端），省份数值合计越大，颜色越不透明。</li>
+      <li><b>用户标注：</b>选中城市后在卡片中输入用户 ID 并点「添加」，用户将以「圆形气泡 + 指向箭头」的图钉展示在该城市上，同一城市多个用户自动纵向排列，可单独移除。</li>
+      <li><b>搜索定位：</b>顶部搜索框输入城市名（支持 <kbd>/</kbd> 快捷聚焦），确认后地图自动缩放定位并选中该城市；搜索框内可切换「城市 / 用户」模式，用户模式下按用户 ID 搜索。</li>
+      <li><b>中心城市：</b>在城市卡片中点击「设为中心城市」，支持设置多个；地图上将以特殊图标标出，样式与大小可在左下角调整。</li>
+      <li><b>指向箭头：</b>连线以城市为单位（每个发出箭头的城市各自连到中心城市）；可设置多个中心城市，添加时选择对应中心，一键批量时就近指向；线条粗细、实虚样式、颜色均可在左下角调整。</li>
+      <li><b>配色说明：</b>热力图采用固定渐变配色（#666BCE → #18B7F6 → #D7EEF6），不可自定义城市颜色。</li>
+      <li><b>线段编号与点亮：</b>线段编号默认隐藏，可用左下角「线段编号」开关显示；点击右上角「点亮」，先隐藏所有连线和数据效果，再按编号顺序依次点亮连线所在省份（渐显动画）、连线从起点城市匀速生长到中心；点亮速度可在左下角调整。</li>
+      <li><b>地图标注：</b>左下角可开关城市数值与城市名称显示。</li>
+      <li><b>地图操作：</b>滚轮缩放、按住拖动平移，右下角可重置视图。</li>
+      <li><b>数据保存：</b>所有数值与设置自动保存在浏览器本地，刷新页面不丢失；也可通过右上角「导出 / 导入」备份为 JSON 文件或从文件恢复。</li>
+    </ul>
+    <button id="modalClose" class="modal-btn">知道了</button>
+  </div>
+</div>
+
+<script src="vendor/echarts.min.js"></script>
+<script src="data/china-city.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
