@@ -244,24 +244,23 @@
     } catch (e) { /* ignore */ }
     return loadDefaultState();
   }
-  // 默认数据：http(s) 环境（GitHub Pages 等）优先 fetch 根目录 data.json（改文件即生效）；
-  // file:// 双击打开时 fetch 被浏览器禁止，回退到 js/default-data.js 的内嵌快照
-  function loadDefaultState() {
-    var applyEmbedded = function () {
-      var s = normalizeState(window.__DEFAULT_MAP_STATE__);
-      if (s) { applyState(s); saveState(); } // 播种后立即存档（带种子版本标记）
-    };
+  // 读取默认数据（不做兜底）：http(s) 环境实时 fetch 根目录 data.json；
+  // file:// 双击打开时 fetch 被浏览器禁止，使用 js/default-data.js 的内嵌快照
+  function readDefaultState() {
     if (location.protocol === 'http:' || location.protocol === 'https:') {
       return fetch('data.json', { cache: 'no-cache' })
         .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-        .then(function (d) {
-          var s = normalizeState(d);
-          if (s) { applyState(s); saveState(); } else applyEmbedded();
-        })
-        .catch(applyEmbedded);
+        .then(function (d) { return normalizeState(d); });
     }
-    applyEmbedded();
-    return Promise.resolve();
+    return Promise.resolve(normalizeState(window.__DEFAULT_MAP_STATE__));
+  }
+  function loadDefaultState() {
+    return readDefaultState()
+      .then(function (s) { if (s) { applyState(s); saveState(); } })
+      .catch(function () { // 在线 fetch 失败（网络/404/解析错误）→ 回退内嵌快照
+        var s = normalizeState(window.__DEFAULT_MAP_STATE__);
+        if (s) { applyState(s); saveState(); }
+      });
   }
   function saveState() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(Object.assign({ __seedV: SEED_VERSION }, state))); } catch (e) { /* ignore */ }
@@ -1396,6 +1395,35 @@
     };
     refresh();
     toast('已清空全部数据');
+  });
+
+  // 重置：放弃当前修改，强制重新读取 data.json（线上）/ 内置快照（本地双击）；无需登录
+  $('btnReset').addEventListener('click', function () {
+    if (!confirm('确定恢复为初始数据（data.json）吗？当前修改将被覆盖。')) return;
+    var btn = this;
+    btn.disabled = true;
+    readDefaultState().then(function (s) {
+      if (!s) throw new Error('默认数据格式无效');
+      applyState(s);
+      saveState();
+      if (selected || selectedUserId) closeCard();
+      setSearchMode(state.style.searchMode === 'user' ? 'user' : 'city');
+      syncStyleUI();
+      refresh();
+      toast((location.protocol === 'http:' || location.protocol === 'https:')
+        ? '已重置为 data.json 初始数据' : '已重置为内置初始数据');
+    }).catch(function () {
+      // 在线读取失败时仍允许用内嵌快照重置
+      var s = normalizeState(window.__DEFAULT_MAP_STATE__);
+      if (s) {
+        applyState(s); saveState();
+        if (selected || selectedUserId) closeCard();
+        syncStyleUI(); refresh();
+        toast('data.json 读取失败，已重置为内置初始数据');
+      } else {
+        toast('重置失败：无法读取初始数据');
+      }
+    }).then(function () { btn.disabled = false; });
   });
 
   // ---------- 点亮播放：先隐藏所有连线和除中心城市外的数据效果，按编号逐个「点亮省份 → 匀速生长连线」 ----------
