@@ -1776,6 +1776,10 @@
   } // end startApp
 
   // ---------- 启动引导：弱网/移动端重试加载 china-city.js ----------
+  // index.html 中 china-city.js 以静态 <script>（app.js 之前）加载：
+  // 同步脚本顺序保证此处执行时它已有结果——成功则 GEO 存在直接启动（PC 双击
+  // file:// 最可靠）；网络失败时标签 onerror 置 __geoLoadFailed，才进入动态重试。
+  // 两条路径互斥，不会重复下载。
   function bootBox(html) {
     var el = document.getElementById('bootStatus');
     if (!el) {
@@ -1806,7 +1810,7 @@
 
   var geo0 = window.__CHINA_CITY_GEO__;
   if (geo0 && geo0.features && geo0.features.length) {
-    startApp(geo0); // 静态 <script> 已正常加载（PC/网络良好时走这里）
+    startApp(geo0); // 静态 <script> 已正常加载（PC 双击 / 网络良好时走这里）
   } else {
     var attempt = 0, MAX = 3;
     function retry() {
