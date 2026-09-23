@@ -2,13 +2,10 @@
 (function () {
   'use strict';
 
+  // 全部应用逻辑包在 startApp 中：china-city.js（3.2MB）在移动端弱网下可能
+  // 首次加载失败，文件末尾的 bootstrap 会动态注入脚本并重试，成功后再启动
+  function startApp(GEO) {
   // ---------- 基础数据 ----------
-  var GEO = window.__CHINA_CITY_GEO__;
-  if (!GEO || !GEO.features || !GEO.features.length) {
-    document.body.innerHTML = '<p style="padding:40px;font-size:16px">地图数据加载失败，请检查 data/china-city.js 是否存在。</p>';
-    return;
-  }
-
   var CITIES = GEO.features.map(function (f) {
     return {
       name: f.properties.name,
@@ -231,7 +228,8 @@
     );
   }
   // 数据优先级：本地有效存档（回访保留个人编辑）＞ 默认数据（data.json / 内嵌快照）
-  function loadState() {
+  // 回调式实现，不依赖 Promise（兼容老旧安卓 X5/微信/QQ 内核）
+  function loadState(done) {
     try {
       var raw = localStorage.getItem(STORE_KEY);
       if (raw) {
@@ -239,31 +237,63 @@
         var seedV = +parsed.__seedV || 1;
         var s = normalizeState(parsed);
         // 旧种子版本 + 空白存档 → 放弃，走默认数据播种
-        if (s && (seedV >= SEED_VERSION || !isEmptyState(s))) { applyState(s); return Promise.resolve(); }
+        if (s && (seedV >= SEED_VERSION || !isEmptyState(s))) { applyState(s); done(); return; }
       }
     } catch (e) { /* ignore */ }
-    return loadDefaultState();
+    loadDefaultState(done);
   }
-  // 读取默认数据（不做兜底）：http(s) 环境实时 fetch 根目录 data.json；
-  // file:// 双击打开时 fetch 被浏览器禁止，使用 js/default-data.js 的内嵌快照
-  function readDefaultState() {
-    if (location.protocol === 'http:' || location.protocol === 'https:') {
-      return fetch('data.json', { cache: 'no-cache' })
-        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-        .then(function (d) { return normalizeState(d); });
+  // 读取默认数据（不做兜底）：
+  // http(s) 环境用 XHR 请求根目录 data.json（XHR 比 fetch 兼容性好，老旧安卓
+  // X5/微信/QQ 内核可能没有 fetch/Promise，直接调用会让整条启动链中断）；
+  // file:// 双击打开时本地请求被浏览器禁止，使用 js/default-data.js 的内嵌快照。
+  // 本函数保证：永不同步抛错，回调总会被执行（失败时回调 null）。
+  function readDefaultState(done) {
+    var embedded = function () {
+      try { return normalizeState(window.__DEFAULT_MAP_STATE__); } catch (e) { return null; }
+    };
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') {
+      setTimeout(function () { done(embedded()); }, 0);
+      return;
     }
-    return Promise.resolve(normalizeState(window.__DEFAULT_MAP_STATE__));
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', 'data.json?t=' + Date.now(), true); // 时间戳防缓存
+      var finished = false;
+      var finish = function (s) { if (!finished) { finished = true; done(s); } };
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState !== 4) return;
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try { finish(normalizeState(JSON.parse(xhr.responseText))); }
+          catch (e) { finish(null); }
+        } else {
+          finish(null);
+        }
+      };
+      xhr.onerror = function () { finish(null); };
+      xhr.ontimeout = function () { finish(null); };
+      xhr.timeout = 8000;
+      xhr.send();
+    } catch (e) {
+      setTimeout(function () { done(null); }, 0);
+    }
   }
-  function loadDefaultState() {
-    return readDefaultState()
-      .then(function (s) { if (s) { applyState(s); saveState(); } })
-      .catch(function () { // 在线 fetch 失败（网络/404/解析错误）→ 回退内嵌快照
-        var s = normalizeState(window.__DEFAULT_MAP_STATE__);
-        if (s) { applyState(s); saveState(); }
-      });
+  function loadDefaultState(done) {
+    readDefaultState(function (s) {
+      // 在线读取失败/数据无效 → 回退内嵌快照，保证任何环境下都有初始数据
+      if (!s) { try { s = normalizeState(window.__DEFAULT_MAP_STATE__); } catch (e) { s = null; } }
+      if (s) { applyState(s); saveState(); }
+      done && done();
+    });
   }
   function saveState() {
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(Object.assign({ __seedV: SEED_VERSION }, state))); } catch (e) { /* ignore */ }
+    try {
+      var payload = {
+        __seedV: SEED_VERSION,
+        values: state.values, arrows: state.arrows, centers: state.centers,
+        users: state.users, style: state.style
+      };
+      localStorage.setItem(STORE_KEY, JSON.stringify(payload));
+    } catch (e) { /* ignore */ }
   }
 
   // ---------- 数据导入导出 ----------
@@ -1401,28 +1431,24 @@
     if (!confirm('确定恢复为初始数据（data.json）吗？当前修改将被覆盖。')) return;
     var btn = this;
     btn.disabled = true;
-    readDefaultState().then(function (s) {
-      if (!s) throw new Error('默认数据格式无效');
+    readDefaultState(function (s) {
+      var fromEmbedded = false;
+      if (!s) { // 在线读取失败 → 回退内嵌快照
+        try { s = normalizeState(window.__DEFAULT_MAP_STATE__); } catch (e) { s = null; }
+        fromEmbedded = true;
+      }
+      btn.disabled = false;
+      if (!s) { toast('重置失败：无法读取初始数据'); return; }
       applyState(s);
       saveState();
       if (selected || selectedUserId) closeCard();
       setSearchMode(state.style.searchMode === 'user' ? 'user' : 'city');
       syncStyleUI();
       refresh();
-      toast((location.protocol === 'http:' || location.protocol === 'https:')
-        ? '已重置为 data.json 初始数据' : '已重置为内置初始数据');
-    }).catch(function () {
-      // 在线读取失败时仍允许用内嵌快照重置
-      var s = normalizeState(window.__DEFAULT_MAP_STATE__);
-      if (s) {
-        applyState(s); saveState();
-        if (selected || selectedUserId) closeCard();
-        syncStyleUI(); refresh();
-        toast('data.json 读取失败，已重置为内置初始数据');
-      } else {
-        toast('重置失败：无法读取初始数据');
-      }
-    }).then(function () { btn.disabled = false; });
+      toast(fromEmbedded ? 'data.json 读取失败，已重置为内置初始数据'
+        : ((location.protocol === 'http:' || location.protocol === 'https:')
+          ? '已重置为 data.json 初始数据' : '已重置为内置初始数据'));
+    });
   });
 
   // ---------- 点亮播放：先隐藏所有连线和除中心城市外的数据效果，按编号逐个「点亮省份 → 匀速生长连线」 ----------
@@ -1741,10 +1767,67 @@
   // ---------- 启动 ----------
   window.addEventListener('resize', function () { chart.resize(); renderPinTip(); });
   chart.setOption(baseOption());
-  loadState().then(function () {
+  loadState(function () {
     setSearchMode(state.style.searchMode === 'user' ? 'user' : 'city');
     syncStyleUI();
     applyAuth();
     refresh();
   });
+  } // end startApp
+
+  // ---------- 启动引导：弱网/移动端重试加载 china-city.js ----------
+  function bootBox(html) {
+    var el = document.getElementById('bootStatus');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'bootStatus';
+      el.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;'
+        + 'background:#05070d;color:#b9c8e8;font:15px/1.8 system-ui,-apple-system,sans-serif;z-index:9999;text-align:center;padding:24px;';
+      (document.body || document.documentElement).appendChild(el);
+    }
+    el.innerHTML = html;
+    return el;
+  }
+  function loadGeoOnce(url, onok, onfail) {
+    var s = document.createElement('script');
+    s.src = url;
+    s.onload = function () {
+      var g = window.__CHINA_CITY_GEO__;
+      (g && g.features && g.features.length) ? onok(g) : onfail();
+    };
+    s.onerror = onfail;
+    document.getElementsByTagName('head')[0].appendChild(s);
+  }
+  function launch(g) {
+    var el = document.getElementById('bootStatus');
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+    startApp(g);
+  }
+
+  var geo0 = window.__CHINA_CITY_GEO__;
+  if (geo0 && geo0.features && geo0.features.length) {
+    startApp(geo0); // 静态 <script> 已正常加载（PC/网络良好时走这里）
+  } else {
+    var attempt = 0, MAX = 3;
+    function retry() {
+      attempt++;
+      bootBox('<div>地图数据较大，正在努力加载…<br>'
+        + '<span style="font-size:13px;opacity:.65">第 ' + attempt + ' / ' + MAX + ' 次尝试，请稍候</span></div>');
+      // 首次用标准 URL（可命中浏览器缓存，弱网二次访问直接读本地）；重试才加时间戳绕缓存
+      var url = attempt === 1 ? 'data/china-city.js' : 'data/china-city.js?r=' + attempt + '-' + Date.now();
+      loadGeoOnce(url, launch, function () {
+        if (attempt < MAX) { setTimeout(retry, attempt === 1 ? 800 : 2200); }
+        else {
+          bootBox('');
+          var box = document.getElementById('bootStatus');
+          box.innerHTML = '<div>地图数据加载失败，可能是网络不稳定或连接 GitHub 较慢。<br><br>'
+            + '<button id="bootRetry" style="padding:10px 26px;font-size:15px;font-weight:700;color:#fff;'
+            + 'background:linear-gradient(135deg,#4fc3ff,#1d9bf0);border:none;border-radius:999px;cursor:pointer">'
+            + '重新加载</button></div>';
+          document.getElementById('bootRetry').onclick = function () { attempt = 0; retry(); };
+        }
+      });
+    }
+    retry();
+  }
 })();
