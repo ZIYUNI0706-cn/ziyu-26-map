@@ -80,7 +80,7 @@
   <div id="tipsPanel" class="tips-panel hidden">
     <div class="tips-head">
       <span class="tips-title">备注</span>
-      <div class="seg edit-only" id="segTipsSize">
+      <div class="seg" id="segTipsSize">
         <button data-size="small">小</button>
         <button data-size="medium" class="active">中</button>
         <button data-size="large">大</button>
@@ -104,7 +104,7 @@
       <label class="legend-check"><input type="checkbox" id="chkNums"> 线段编号</label>
     </div>
     <div class="legend-divider"></div>
-    <div class="legend-group edit-only">
+    <div class="legend-group">
       <span class="legend-gtitle">箭头样式</span>
       <div class="seg" id="segMotion">
         <button data-motion="flow" class="active">流动</button>
@@ -141,7 +141,7 @@
         <input id="arrowHex" type="text" maxlength="7" placeholder="#ff6699" spellcheck="false" autocomplete="off" title="输入颜色值，如 #ff6699">
       </div>
     </div>
-    <div class="legend-group edit-only">
+    <div class="legend-group">
       <span class="legend-gtitle">中心图标</span>
       <div class="seg seg-icon" id="segIcon">
         <button data-icon="pin" class="active">图钉</button>
@@ -158,7 +158,7 @@
         <button data-size="large">大</button>
       </div>
     </div>
-    <div class="legend-group edit-only">
+    <div class="legend-group">
       <span class="legend-gtitle">用户气泡</span>
       <div class="seg" id="segUserSize">
         <button data-size="small">小</button>
@@ -179,9 +179,9 @@
       <span class="mark"><i class="dot dot-center"></i>中心城市</span>
       <span class="mark"><svg id="markArrow" viewBox="0 0 24 24" width="14" height="14" stroke="#f97316" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20C8 12 13 8 21 6"/><path d="M15 5l6 1-1 6"/></svg>指向中心的箭头</span>
     </div>
-    <div class="legend-btns edit-only">
-      <button id="btnArrowAll" class="mini-btn" title="为所有有着色的城市添加指向中心的箭头（就近指向）">为有着色城市添加</button>
-      <button id="btnArrowNone" class="mini-btn">全部移除</button>
+    <div class="legend-btns">
+      <button id="btnArrowAll" class="mini-btn edit-only" title="为所有有着色的城市添加指向中心的箭头（就近指向）">为有着色城市添加</button>
+      <button id="btnArrowNone" class="mini-btn edit-only">全部移除</button>
     </div>
   </aside>
 
@@ -253,7 +253,7 @@
   <div class="modal-card">
     <div class="modal-title">使用说明</div>
     <ul class="modal-list">
-      <li><b>编辑权限：</b>默认是<b>只读浏览</b>模式，只能查看地图、悬停查看数值、拖动缩放与播放点亮；点击右上角「登录」（账号 admin）后才可修改数值、用户、中心、箭头、样式与导入数据，退出后恢复只读。</li>
+      <li><b>编辑权限：</b>默认是<b>只读浏览</b>模式，可查看地图、悬停查看数值、拖动缩放、播放点亮、调整显示与样式（箭头颜色/线型、中心图标、气泡大小等）、重置为初始数据；点击右上角「登录」（账号 admin）后才可修改数值、用户、中心、箭头数据、备注文字与导入数据，退出后恢复只读。</li>
       <li><b>编辑数值：</b>登录后点击地图上任意城市输入数值；该城市所在省份整体渐变着色（从省一端连续渐变到另一端），省份数值合计越大，颜色越不透明。</li>
       <li><b>用户标注：</b>选中城市后在卡片中输入用户 ID 并点「添加」，用户将以「圆形气泡 + 指向箭头」的图钉展示在该城市上，同一城市多个用户自动纵向排列，可单独移除。</li>
       <li><b>搜索定位：</b>顶部搜索框输入城市名（支持 <kbd>/</kbd> 快捷聚焦），确认后地图自动缩放定位并选中该城市；搜索框内可切换「城市 / 用户」模式，用户模式下按用户 ID 搜索。</li>

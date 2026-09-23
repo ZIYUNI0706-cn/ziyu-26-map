@@ -1272,10 +1272,11 @@
   $('chkNames').addEventListener('change', refresh);
   $('chkNums').addEventListener('change', refresh);
 
+  // 分段选择器全部为样式/播放设置，未登录也可调整（自动保存在各自浏览器）
   function bindSeg(id, attr, apply) {
     $(id).addEventListener('click', function (e) {
       var btn = e.target.closest('button');
-      if (!btn || !requireAdmin()) return;
+      if (!btn) return;
       apply(btn.getAttribute(attr));
       Array.prototype.forEach.call($(id).querySelectorAll('button'), function (b) {
         b.classList.toggle('active', b === btn);
@@ -1294,21 +1295,19 @@
 
   $('swatchArrow').addEventListener('click', function (e) {
     var btn = e.target.closest('.swatch');
-    if (!btn || !requireAdmin()) return;
+    if (!btn) return;
     state.style.arrowColor = btn.getAttribute('data-color');
     syncStyleUI();
     refresh();
   });
 
-  // 自定义箭头颜色（画板取色 + 手动输入）
+  // 自定义箭头颜色（画板取色 + 手动输入）—— 样式设置，未登录也可调整
   $('arrowPicker').addEventListener('input', function () {
-    if (!canEdit()) return;
     state.style.arrowColor = $('arrowPicker').value;
     syncStyleUI();
     refresh();
   });
   $('arrowHex').addEventListener('change', function () {
-    if (!requireAdmin()) return;
     var v = $('arrowHex').value.trim();
     if (/^#[0-9a-fA-F]{3}$/.test(v)) v = '#' + v[1] + v[1] + v[2] + v[2] + v[3] + v[3];
     if (/^#[0-9a-fA-F]{6}$/.test(v)) {
@@ -1610,10 +1609,13 @@
   $('btnTips').addEventListener('click', function () {
     var open = tipsPanelEl.classList.toggle('hidden');
     this.classList.toggle('active', !open);
-    if (!open && canEdit()) $('tipsText').focus();
+    if (!open) {
+      tipsPanelEl.classList.add('editing'); // 未登录也显示字号/拖拽栏（文字仍不可编辑）
+      if (canEdit()) $('tipsText').focus();
+    }
   });
   // 编辑态：显示标题栏与字号按钮；点击面板外退出，仅展示内容
-  $('tipsText').addEventListener('focus', function () { if (canEdit()) tipsPanelEl.classList.add('editing'); });
+  $('tipsText').addEventListener('focus', function () { tipsPanelEl.classList.add('editing'); });
   document.addEventListener('mousedown', function (e) {
     if (tipsPanelEl.classList.contains('editing') && !tipsPanelEl.contains(e.target)) {
       tipsPanelEl.classList.remove('editing');
@@ -1627,7 +1629,7 @@
   });
   $('segTipsSize').addEventListener('click', function (e) {
     var btn = e.target.closest('button');
-    if (!btn || !requireAdmin()) return;
+    if (!btn) return;
     state.style.tipsSize = btn.getAttribute('data-size');
     Array.prototype.forEach.call(this.querySelectorAll('button'), function (b) {
       b.classList.toggle('active', b === btn);
@@ -1642,7 +1644,7 @@
     var handle = panel.querySelector('.tips-title');
     var sx = 0, sy = 0, ox = 0, oy = 0, dragging = false;
     handle.addEventListener('mousedown', function (e) {
-      if (e.button !== 0 || !canEdit()) return;
+      if (e.button !== 0) return; // 面板位置属样式偏好，未登录也可拖动
       var r = panel.getBoundingClientRect();
       panel.style.left = r.left + 'px';
       panel.style.top = r.top + 'px';
@@ -1686,7 +1688,7 @@
     tipsPanelEl.classList.remove('editing');
     document.querySelector('.legend-caption').textContent = isAdmin
       ? '点击城市编辑数值 · 数值越大颜色越实'
-      : '只读浏览模式 · 右上角登录后可编辑数据 · 悬停城市查看数值';
+      : '只读浏览 · 样式可自由调整 · 登录后可编辑数据';
     if (!isAdmin) {
       // 切到只读：收起编辑卡，样式类控件视觉禁用（.edit-only 由 CSS 处理）
       if (selected) closeCard();
